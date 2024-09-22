@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>彩虹气球大挑战</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            border: 2px solid #333;
+            background-color: #fff;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+<div id="app" class="w-full h-full flex flex-col items-center justify-center">
+    <canvas id="gameCanvas" class="hidden"></canvas>
+
+    <!-- 登录/注册页面 -->
+    <div id="authPage" class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <h2 class="text-2xl font-bold mb-4">欢迎来到彩虹气球大挑战!</h2>
+        <div id="loginForm" class="space-y-4">
+            <input type="text" id="accountInput" placeholder="11位账号" maxlength="11" class="w-full p-2 border rounded">
+            <input type="password" id="passwordInput" placeholder="密码" class="w-full p-2 border rounded">
+            <div class="flex items-center">
+                <input type="checkbox" id="rememberPassword" class="mr-2">
+                <label for="rememberPassword">记住密码</label>
+            </div>
+            <button id="submitLogin" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">登录</button>
+            <button id="submitRegister" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">注册</button>
+        </div>
+    </div>
+
+    <!-- 玩家信息页面 -->
+    <div id="playerInfoPage" class="hidden bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <h2 class="text-2xl font-bold mb-4">玩家信息</h2>
+        <p>账号: <span id="playerAccount"></span></p>
+        <p>最高分: <span id="playerHighScore">0</span></p>
+        <button id="startGameBtn" class="mt-4 bg-green-500 text-white p-2 rounded hover:bg-green-600">开始游戏</button>
+        <button id="viewLeaderboardBtn" class="mt-2 bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600">查看排行榜</button>
+        <button id="logoutBtn" class="mt-2 bg-red-500 text-white p-2 rounded hover:bg-red-600">退出登录</button>
+    </div>
+
+    <!-- 排行榜页面 -->
+    <div id="leaderboardPage" class="hidden bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+        <h2 class="text-2xl font-bold mb-4">排行榜</h2>
+        <ol id="leaderboardList" class="list-decimal list-inside"></ol>
+        <button id="backToInfoBtn" class="mt-4 bg-gray-500 text-white p-2 rounded hover:bg-gray-600">返回</button>
+    </div>
+
+    <!-- 游戏信息 -->
+    <div id="gameInfo" class="hidden absolute top-4 left-4 text-lg">
+        分数: <span id="score">0</span><br>
+        时间: <span id="time">00:45</span>
+    </div>
+</div>
+
+<script>
+    const API_URL = 'http://localhost:3000';
+    let currentPlayer = null;
+    let score = 0;
+    let timeRemaining = 45;
+    let balloons = [];
+    let gameInterval;
+    let difficultyInterval;
+    let timerInterval;
+    let isGameRunning = false;
+    let difficultyLevel = 0;
+    let rememberPassword = false;
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const timeElement = document.getElementById('time');
+    const authPage = document.getElementById('authPage');
+    const playerInfoPage = document.getElementById('playerInfoPage');
+    const leaderboardPage = document.getElementById('leaderboardPage');
+    const gameInfo = document.getElementById('gameInfo');
+    const rememberPasswordCheckbox = document.getElementById('rememberPassword');
+
+    canvas.width = window.innerWidth - 20;
+    canvas.height = window.innerHeight - 20;
+
+    // 从 localStorage 中恢复记住的密码
+    const rememberAccount = localStorage.getItem('rememberAccount');
+    const storedPassword = localStorage.getItem('rememberPassword');
+    if (rememberAccount && storedPassword) {
+        document.getElementById('accountInput').value = rememberAccount;
+        document.getElementById('passwordInput').value = storedPassword;
+        rememberPasswordCheckbox.checked = true;
+        rememberPassword = true;
+    }
+    class Balloon {
+        constructor() {
+            this.radius = Math.random() * 40 + 30; // 随机半径，范围30-50
+            this.x = Math.random() * (canvas.width - this.radius * 2) + this.radius;
+            this.y = canvas.height + this.radius;
+            this.speed = (Math.random() * 0.5 + 0.5) * (1 + difficultyLevel * 0.1); // 根据难度增加速度
+            this.color = `hsl(${Math.random() * 360}, 100%, 50%)`;
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        update() {
+            this.y -= this.speed;
+        }
+    }
+
+    function createBalloon() {
+        balloons.push(new Balloon());
+    }
+
+    function updateGame() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        balloons = balloons.filter(balloon => balloon.y + balloon.radius > 0);
+
+        balloons.forEach(balloon => {
+            balloon.update();
+            balloon.draw();
+        });
+
+        scoreElement.textContent = score;
+    }
+
+    function updateTimer() {
+        if (timeRemaining > 0) {
+            timeRemaining--;
+            const seconds = timeRemaining % 60;
+            timeElement.textContent = `00:${seconds.toString().padStart(2, '0')}`;
+        } else {
+            endGame();
+        }
+    }
+
+    function increaseDifficulty() {
+        createBalloon();
+        difficultyLevel++;
+    }
+
+    function startGame() {
+        if (isGameRunning) return;
+        isGameRunning = true;
+        score = 0;
+        timeRemaining = 45;
+        balloons = [];
+        difficultyLevel = 0;
+
+        for (let i = 0; i < 8; i++) {
+            createBalloon();
+        }
+
+        gameInterval = setInterval(updateGame, 1000 / 60);
+        timerInterval = setInterval(updateTimer, 1000);
+        difficultyInterval = setInterval(increaseDifficulty, 2800);
+
+        canvas.classList.remove('hidden');
+        gameInfo.classList.remove('hidden');
+        playerInfoPage.classList.add('hidden');
+    }
+
+    async function endGame() {
+        clearInterval(gameInterval);
+        clearInterval(difficultyInterval);
+        clearInterval(timerInterval);
+        isGameRunning = false;
+        alert(`游戏结束！你的得分是: ${score}`);
+
+        await updatePlayerScore(score);
+        await updateLeaderboard();
+
+        canvas.classList.add('hidden');
+        gameInfo.classList.add('hidden');
+        playerInfoPage.classList.remove('hidden');
+    }
+
+    canvas.addEventListener('click', (event) => {
+        if (!isGameRunning) return;
+        const rect = canvas.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+
+        balloons.forEach((balloon, index) => {
+            const dx = clickX - balloon.x;
+            const dy = clickY - balloon.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < balloon.radius) {
+                balloons.splice(index, 1);
+                score += 10;
+                createBalloon();
+            }
+        });
+    });
+
+    async function login(account, password) {
+        try {
+            const response = await fetch(`${API_URL}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ account, password }),
+            });
+            const data = await response.json();
+            if (response.ok) {
+                currentPlayer = { account, highScore: data.highScore };
+                document.getElementById('playerAccount').textContent = account;
+                document.getElementById('playerHighScore').textContent = currentPlayer.highScore;
+                authPage.classList.add('hidden');
+                playerInfoPage.classList.remove('hidden');
+                await updateLeaderboard();
+
+                // 如果勾选了"记住密码",保存账号和密码到 localStorage
+                if (rememberPasswordCheckbox.checked) {
+                    localStorage.setItem('rememberAccount', account);
+                    localStorage.setItem('rememberPassword', password);
+                    rememberPassword = true;
+                } else {
+                    localStorage.removeItem('rememberAccount');
+                    localStorage.removeItem('rememberPassword');
+                    rememberPassword = false;
+                }
+
+                return true;
+            } else {
+                alert(data.message);
+                return false;
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            alert('登录失败,请稍后再试');
+            return false;
+        }
+    }
+
+    async function register(account, password) {
+        try {
+            console.log('Attempting to register with:', { account, password });
+            const response = await fetch(`${API_URL}/register`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ account, password }),
+            });
+            console.log('Registration response status:', response.status);
+            const data = await response.json();
+            console.log('Registration response data:', data);
+            if (response.ok) {
+                alert('新用户注册成功');
+                await login(account, password);
+            } else {
+                alert(`注册失败: ${data.message || '未知错误'}`);
+            }
+        } catch (error) {
+            console.error('Registration error:', error);
+            alert(`注册失败: ${error.message}`);
+        }
+    }
+
+    async function updatePlayerScore(newScore) {
+        if (currentPlayer) {
+            try {
+                const response = await fetch(`${API_URL}/updateScore`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ account: currentPlayer.account, score: newScore }),
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    currentPlayer.highScore = data.highScore;
+                    document.getElementById('playerHighScore').textContent = data.highScore;
+                }
+            } catch (error) {
+                console.error('Update score error:', error);
+            }
+        }
+    }
+
+    async function updateLeaderboard() {
+        try {
+            const response = await fetch(`${API_URL}/leaderboard`);
+            const leaderboard = await response.json();
+            const leaderboardList = document.getElementById('leaderboardList');
+            leaderboardList.innerHTML = '';
+            leaderboard.forEach((score, index) => {
+                let li = document.createElement('li');
+                li.textContent = `${score.account}: ${score.highScore}`;
+                if (index < 3) {
+                    li.className = 'font-bold';
+                }
+                if (currentPlayer && score.account === currentPlayer.account) {
+                    li.className += ' bg-yellow-200'; // 高亮显示当前用户
+                }
+                leaderboardList.appendChild(li);
+            });
+        } catch (error) {
+            console.error('Leaderboard update error:', error);
+        }
+    }
+
+    document.getElementById('submitLogin').addEventListener('click', async () => {
+        let account = document.getElementById('accountInput').value;
+        let password = document.getElementById('passwordInput').value;
+        if (account.length !== 11) {
+            alert('账号必须是11位数字');
+            return;
+        }
+        if (await login(account, password)) {
+            alert('登录成功');
+        } else {
+            await register(account, password);
+        }
+    });
+
+
+    document.getElementById('submitRegister').addEventListener('click', async () => {
+        let account = document.getElementById('accountInput').value;
+        let password = document.getElementById('passwordInput').value;
+        if (account.length !== 11) {
+            alert('账号必须是11位数字');
+            return;
+        }
+        await register(account, password);
+    });
+
+    document.getElementById('startGameBtn').addEventListener('click', startGame);
+
+    document.getElementById('viewLeaderboardBtn').addEventListener('click', () => {
+        playerInfoPage.classList.add('hidden');
+        leaderboardPage.classList.remove('hidden');
+    });
+
+    document.getElementById('backToInfoBtn').addEventListener('click', () => {
+        leaderboardPage.classList.add('hidden');
+        playerInfoPage.classList.remove('hidden');
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+        currentPlayer = null;
+        rememberPassword = false;
+        localStorage.removeItem('rememberAccount');
+        localStorage.removeItem('rememberPassword');
+        playerInfoPage.classList.add('hidden');
+        authPage.classList.remove('hidden');
+    });
+</script>
+</body>
+</html>
