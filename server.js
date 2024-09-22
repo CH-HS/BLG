@@ -1,29 +1,30 @@
-const mongoose = require('mongoose');
-
-const mongodbUri = process.env.MONGODB_URI;
-const mongodbDb = process.env.MONGODB_DB;
-
-mongoose.connect(mongodbUri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    dbName: mongodbDb,
-});
-
 const express = require('express');
-const mongoose = require('mongoose');
+const mongoose = require('mongoose'); // 确保只有这一行存在
 const bcrypt = require('bcrypt');
 const cors = require('cors');
+const dotenv = require('dotenv');
+
+dotenv.config(); // 加载环境变量
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
 
-// 连接到 MongoDB （新版MongoDB连接字符串中不再需要useNewUrlParser或useUnifiedTopology）  
-mongoose.connect('mongodb://localhost/balloon_game'); // 使用默认配置  
+const mongodbUri = process.env.MONGODB_URI;
+const mongodbDb = process.env.MONGODB_DB;
 
-// 用户模型  
+// 连接到 MongoDB
+mongoose.connect(mongodbUri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    dbName: mongodbDb,
+})
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => console.error('MongoDB connection error:', err));
+
+// 用户模型
 const User = mongoose.model('User', {
     account: String,
     password: String,
@@ -97,16 +98,7 @@ app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
 
-require('dotenv').config();
 
-const mongodbUri = process.env.MONGODB_URI;
-const mongodbDb = process.env.MONGODB_DB;
-
-mongoose.connect(mongodbUri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    dbName: mongodbDb,
-});
 // 启动服务器
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
